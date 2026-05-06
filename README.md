@@ -1,20 +1,22 @@
 # MiniMuhasebe Pro (WinForms)
 
-Banka API entegre muhasebe uygulaması için modüler başlangıç projesi.
+Bu proje, SRS gereksinimlerine göre hazırlanmış modüler Windows Forms muhasebe uygulamasıdır.
 
-## Katmanlar
-- Core: uygulama ayarları
-- Data: veritabanı başlatma/sürdürme
-- UI: WinForms ekranları
-- Services/Banking: iş servisleri ve banka adaptörleri için ayrılmış klasörler
+## Öne Çıkanlar
+- Rol bazlı kimlik doğrulama altyapısı (Admin, Muhasebe, Finans, İzleyici)
+- Banka adaptör mimarisi (`IBankAdapter`) ile genişletilebilir entegrasyon
+- EFT/Havale, mutabakat, raporlama, muhasebe fişleri için modül ekranları
+- Audit log altyapısı ve IBAN maskeleme yardımcıları
+- Veritabanı tablolarının uygulama kodu içinde otomatik oluşturulması (ayrı script yok)
 
-## Veritabanı
-Uygulama açılırken `DatabaseInitializer` sınıfı otomatik olarak tabloları oluşturur.
-Ayrı SQL script kullanılmaz.
+## Teknoloji
+- .NET Framework 4.8
+- C# 7.3
+- WinForms
+- SQLite veya SQL Server
 
-`App.config` ile sağlayıcı seçimi:
-- SQLite (varsayılan)
-- SQLServer
-
-## Not
-Bu sürüm, SRS'teki modüler ekran yapısı ve çekirdek şema gereksinimlerini karşılayan v1 temel iskelettir.
+## Veritabanı Yaklaşımı
+`Data/DatabaseInitializer.cs` uygulama açılışında çalışır ve gerekli tabloları oluşturur.
+Sağlayıcı seçimi `App.config` içindeki `DatabaseProvider` değeri ile yapılır:
+- `SQLite` (varsayılan)
+- `SQLServer`

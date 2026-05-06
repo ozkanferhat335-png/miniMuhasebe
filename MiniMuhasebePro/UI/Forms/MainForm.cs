@@ -1,42 +1,51 @@
+using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
+using MiniMuhasebePro.Domain.Models;
+using MiniMuhasebePro.UI.Forms.Modules;
 
 namespace MiniMuhasebePro.UI.Forms
 {
     public class MainForm : Form
     {
-        public MainForm()
+        private readonly User _currentUser;
+
+        public MainForm(User currentUser)
         {
+            _currentUser = currentUser;
             Text = "MiniMuhasebe Pro Dashboard";
             WindowState = FormWindowState.Maximized;
 
-            var tabs = new TabControl { Dock = DockStyle.Fill };
-            tabs.TabPages.Add(BuildPage("Dashboard"));
-            tabs.TabPages.Add(BuildPage("Banka Hesapları"));
-            tabs.TabPages.Add(BuildPage("Hesap Hareketleri"));
-            tabs.TabPages.Add(BuildPage("EFT / Havale"));
-            tabs.TabPages.Add(BuildPage("Muhasebe Fişleri"));
-            tabs.TabPages.Add(BuildPage("Mutabakat"));
-            tabs.TabPages.Add(BuildPage("Raporlar"));
-            tabs.TabPages.Add(BuildPage("Yönetim / Yetki"));
-
-            Controls.Add(tabs);
-        }
-
-        private TabPage BuildPage(string title)
-        {
-            var page = new TabPage(title);
-            page.Controls.Add(new Label
+            var menu = new MenuStrip();
+            var moduller = new ToolStripMenuItem("Modüller");
+            var forms = new Dictionary<string, Form>
             {
-                Text = title + " modülü hazır.",
-                AutoSize = true,
-                Left = 20,
-                Top = 20,
-                Font = new Font("Segoe UI", 11, FontStyle.Bold)
-            });
-            page.Controls.Add(new ProgressBar { Left = 20, Top = 55, Width = 400, Style = ProgressBarStyle.Continuous, Value = 25 });
-            page.Controls.Add(new Button { Left = 430, Top = 52, Width = 120, Text = "İptal" });
-            return page;
+                {"Banka Hesapları", new BankAccountsForm()},
+                {"Hesap Hareketleri", new TransactionsForm()},
+                {"EFT/Havale", new TransferForm()},
+                {"Muhasebe Fişleri", new VoucherForm()},
+                {"Mutabakat", new ReconciliationForm()},
+                {"Raporlar", new ReportsForm()},
+                {"Yönetim/Yetki", new AdminForm()}
+            };
+
+            foreach (var kv in forms)
+            {
+                var item = new ToolStripMenuItem(kv.Key);
+                item.Click += (s, e) => kv.Value.ShowDialog();
+                moduller.DropDownItems.Add(item);
+            }
+
+            menu.Items.Add(moduller);
+            MainMenuStrip = menu;
+            Controls.Add(menu);
+
+            Controls.Add(new Label { Left = 20, Top = 60, AutoSize = true, Font = new Font("Segoe UI", 11, FontStyle.Bold), Text = "Hoşgeldiniz: " + _currentUser.Username });
+            Controls.Add(new Label { Left = 20, Top = 90, AutoSize = true, Text = "Rol: " + _currentUser.Role });
+            Controls.Add(new Button { Left = 20, Top = 130, Width = 170, Text = "Hareketleri Senkronize Et" });
+            Controls.Add(new ProgressBar { Left = 200, Top = 130, Width = 300, Style = ProgressBarStyle.Marquee });
+            Controls.Add(new Button { Left = 510, Top = 130, Width = 120, Text = "İptal" });
         }
     }
 }
