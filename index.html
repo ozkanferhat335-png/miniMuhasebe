@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kayıp Renkler Diyarı - Tek Dosya</title>
+  <style>
+    body{margin:0;background:#111827;color:#f9fafb;font-family:Arial,sans-serif;display:flex;flex-direction:column;align-items:center}
+    .hud{width:960px;margin:12px 0 6px}
+    .stats{display:flex;gap:20px;font-weight:bold;flex-wrap:wrap}
+    canvas{background:linear-gradient(#0b1026,#18223d);border:2px solid #334155}
+    .panel{width:960px;min-height:28px;margin:8px 0 16px;color:#fde68a}
+  </style>
+</head>
+<body>
+  <div class="hud">
+    <h1>Kayıp Renkler Diyarı</h1>
+    <div class="stats">
+      <span id="levelInfo">Bölüm: 1/10</span>
+      <span id="goalInfo">Renk Parçası: 0/0</span>
+      <span id="lifeInfo">Can: 3</span>
+      <span id="stateInfo">Durum: Normal</span>
+    </div>
+    <p>Hareket: A/D veya ←/→, Zıpla: W/↑/Boşluk, Etkileşim: E, Yeniden: R</p>
+  </div>
+  <canvas id="game" width="960" height="540"></canvas>
+  <div class="panel" id="messagePanel"></div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const levelInfo = document.getElementById('levelInfo');
+    const goalInfo = document.getElementById('goalInfo');
+    const lifeInfo = document.getElementById('lifeInfo');
+    const stateInfo = document.getElementById('stateInfo');
+    const messagePanel = document.getElementById('messagePanel');
+
+    const W = canvas.width, H = canvas.height;
+    const CFG = {
+      gravity: 0.65,
+      moveSpeed: 4.4,
+      jumpSpeed: -12,
+      coyoteTimeMs: 110,
+      jumpBufferMs: 110,
+      invulnMs: 950,
+      knockbackX: 5,
+      knockbackY: -5,
+      enemyChaseRange: 150
+    };
+
+    const keys = {};
+    addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+    addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+
+    const colors = ['#ef4444','#f59e0b','#eab308','#22c55e','#06b6d4','#3b82f6','#8b5cf6','#ec4899','#14b8a6','#f97316'];
+    const clone = o => JSON.parse(JSON.stringify(o));
+
+    function makeLevels(){
+      const out=[];
+      for(let i=0;i<10;i++){
+        const spikes = i<2?[]:[
+          {x:300+((i*31)%180), y:488, w:80, h:12},
+          {x:560-((i*9)%120), y:488, w:80, h:12},
+        ];
+        const enemies = i<3?[]:[{x:430,y:470,w:20,h:30,minX:350,maxX:700,state:'patrol',vx:1.3}];
+        const switches = i<5?[]:[{x:150,y:405,w:26,h:10,active:false}];
+        const gate = i<5?null:{x:760,y:230,w:30,h:50,open:false};
+        out.push({
+          id:i+1,
+          name:`Bölüm ${i+1}`,
+          theme:colors[i],
+          spawn:{x:40,y:460},
+          checkpoints:[{x:500,y:318,w:28,h:32,active:false}],
+          door:{x:860,y:220,w:50,h:60,locked:true},
+          gate,
+          switches,
+          platforms:[
+            {x:0,y:500,w:W,h:40},
+            {x:120+((i*23)%120),y:430,w:180,h:18},
+            {x:380+((i*19)%140),y:350,w:170,h:18},
+            {x:640-((i*17)%120),y:280,w:170,h:18},
+          ],
+          fragments:[
+            {x:170+((i*29)%200), y:390, c:colors[i]},
+            {x:430+((i*13)%220), y:310, c:colors[(i+3)%10]},
+            {x:690-((i*21)%200), y:240, c:colors[(i+6)%10]},
+          ],
+          spikes,
+          enemies
+        });
+      }
+      return out;
+    }
+
+    const levels = makeLevels();
+    let currentLevel = 0, lives = 3;
+    const player = {
+      x:40,y:460,w:24,h:52,vx:0,vy:0,onGround:false,
+      collected:0,lastGroundedAt:0,lastJumpPressedAt:0,invulnUntil:0,spawnX:40,spawnY:460
+    };
+    let levelData = clone(levels[currentLevel]);
+
+    const hit = (a,b)=>a.x<b.x+b.w && a.x+a.w>b.x && a.y<b.y+b.h && a.y+a.h>b.y;
+
+    function resetLevel(loseLife=false){
+      if(loseLife) lives = Math.max(0,lives-1);
+      if(lives===0){ currentLevel=0; lives=3; messagePanel.textContent='Tüm canlar bitti. Oyun başa alındı.'; }
+      levelData=clone(levels[currentLevel]);
+      player.spawnX = levelData.spawn.x; player.spawnY = levelData.spawn.y;
+      Object.assign(player,{x:player.spawnX,y:player.spawnY,vx:0,vy:0,collected:0,lastGroundedAt:0,lastJumpPressedAt:0,invulnUntil:0});
+    }
+
+    function nextLevel(){
+      if(currentLevel===9){ messagePanel.textContent='Tebrikler! 10 bölüm tamamlandı, renkler geri döndü!'; currentLevel=0; lives=3; }
+      else { currentLevel++; messagePanel.textContent=`Harika! ${currentLevel+1}. bölüme geçildi.`; }
+      resetLevel(false);
+    }
+
+    function takeDamage(sourceX){
+      const now = performance.now();
+      if(now < player.invulnUntil) return;
+      player.invulnUntil = now + CFG.invulnMs;
+      player.vx = sourceX < player.x ? CFG.knockbackX : -CFG.knockbackX;
+      player.vy = CFG.knockbackY;
+      resetLevel(true);
+    }
+
+    function input(){
+      if(keys['r']) resetLevel(false);
+      const left = keys['a'] || keys['arrowleft'];
+      const right = keys['d'] || keys['arrowright'];
+      const jump = keys['w'] || keys['arrowup'] || keys[' '];
+      player.vx = left ? -CFG.moveSpeed : right ? CFG.moveSpeed : player.vx * 0.75;
+      if(jump) player.lastJumpPressedAt = performance.now();
+    }
+
+    function handleJumpAssist(now){
+      const canCoyote = player.onGround || (now - player.lastGroundedAt) <= CFG.coyoteTimeMs;
+      const jumpBuffered = (now - player.lastJumpPressedAt) <= CFG.jumpBufferMs;
+      if(canCoyote && jumpBuffered){
+        player.vy = CFG.jumpSpeed;
+        player.onGround = false;
+        player.lastJumpPressedAt = -99999;
+      }
+    }
+
+    function updateEnemies(){
+      for(const e of levelData.enemies){
+        const dx = (player.x - e.x);
+        if(Math.abs(dx) < CFG.enemyChaseRange) e.state = 'chase'; else e.state = 'patrol';
+        if(e.state==='patrol'){
+          e.x += e.vx;
+          if(e.x < e.minX || e.x > e.maxX) e.vx *= -1;
+        } else {
+          e.x += Math.sign(dx) * 1.7;
+        }
+        if(hit(player,e)) takeDamage(e.x);
+      }
+    }
+
+    function updateSwitchGate(){
+      if(!levelData.gate) return;
+      for(const s of levelData.switches){
+        if(hit(player,s) && keys['e']) s.active = true;
+      }
+      levelData.gate.open = levelData.switches.every(s=>s.active);
+    }
+
+    function update(){
+      const now = performance.now();
+      handleJumpAssist(now);
+
+      player.vy += CFG.gravity;
+      player.x += player.vx;
+      player.y += player.vy;
+      player.onGround = false;
+
+      for(const p of levelData.platforms){
+        if(hit(player,p)){
+          const prevY = player.y - player.vy;
+          if(prevY + player.h <= p.y + 2 && player.vy >= 0){ player.y = p.y - player.h; player.vy = 0; player.onGround = true; player.lastGroundedAt = now; }
+          else if(prevY >= p.y + p.h - 2 && player.vy < 0){ player.y = p.y + p.h; player.vy = 0; }
+          else { if(player.vx > 0) player.x = p.x - player.w; if(player.vx < 0) player.x = p.x + p.w; }
+        }
+      }
+
+      for(const cp of levelData.checkpoints){
+        if(hit(player,cp)){
+          cp.active = true;
+          player.spawnX = cp.x; player.spawnY = cp.y - player.h;
+        }
+      }
+
+      if(player.y > H + 60) resetLevel(true);
+      for(const s of levelData.spikes) if(hit(player,s)) return takeDamage(s.x);
+
+      levelData.fragments = levelData.fragments.filter(f=>{
+        const orb = {x:f.x-8,y:f.y-8,w:16,h:16};
+        if(hit(player,orb)){ player.collected++; return false; }
+        return true;
+      });
+
+      updateEnemies();
+      updateSwitchGate();
+
+      levelData.door.locked = levelData.fragments.length > 0 || (levelData.gate && !levelData.gate.open);
+      if(!levelData.door.locked && hit(player, levelData.door)) nextLevel();
+    }
+
+    function drawStickman(x,y,color,blink){
+      if(blink) return;
+      ctx.strokeStyle=color; ctx.lineWidth=3;
+      const cx=x+player.w/2;
+      ctx.beginPath(); ctx.arc(cx,y+8,7,0,Math.PI*2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx,y+15); ctx.lineTo(cx,y+32); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx,y+20); ctx.lineTo(cx-10,y+27); ctx.moveTo(cx,y+20); ctx.lineTo(cx+10,y+27); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx,y+32); ctx.lineTo(cx-9,y+49); ctx.moveTo(cx,y+32); ctx.lineTo(cx+9,y+49); ctx.stroke();
+    }
+
+    function render(){
+      const now = performance.now();
+      ctx.clearRect(0,0,W,H);
+      ctx.fillStyle='rgba(255,255,255,.04)';
+      for(let i=0;i<60;i++) ctx.fillRect((i*163)%W, (i*97)%H, 2, 2);
+      for(const p of levelData.platforms){ ctx.fillStyle='#334155'; ctx.fillRect(p.x,p.y,p.w,p.h); }
+      for(const s of levelData.spikes){ ctx.fillStyle='#ef4444'; ctx.fillRect(s.x,s.y,s.w,s.h); }
+      for(const f of levelData.fragments){ ctx.fillStyle=f.c; ctx.beginPath(); ctx.arc(f.x,f.y,8,0,Math.PI*2); ctx.fill(); }
+      for(const e of levelData.enemies){ ctx.fillStyle = e.state==='chase' ? '#f97316' : '#a78bfa'; ctx.fillRect(e.x,e.y,e.w,e.h); }
+
+      for(const cp of levelData.checkpoints){ ctx.fillStyle=cp.active?'#22c55e':'#64748b'; ctx.fillRect(cp.x,cp.y,cp.w,cp.h); }
+      for(const s of levelData.switches){ ctx.fillStyle=s.active?'#22c55e':'#eab308'; ctx.fillRect(s.x,s.y,s.w,s.h); }
+      if(levelData.gate && !levelData.gate.open){ ctx.fillStyle='#0f172a'; ctx.fillRect(levelData.gate.x,levelData.gate.y,levelData.gate.w,levelData.gate.h); }
+
+      ctx.strokeStyle = levelData.theme; ctx.lineWidth=4;
+      ctx.strokeRect(levelData.door.x,levelData.door.y,levelData.door.w,levelData.door.h);
+      if(!levelData.door.locked){ ctx.fillStyle='rgba(34,197,94,.25)'; ctx.fillRect(levelData.door.x,levelData.door.y,levelData.door.w,levelData.door.h); }
+
+      const invuln = now < player.invulnUntil;
+      drawStickman(player.x,player.y,'#f8fafc', invuln && Math.floor(now/80)%2===0);
+
+      levelInfo.textContent = `${levels[currentLevel].name} (${currentLevel+1}/10)`;
+      goalInfo.textContent = `Renk Parçası: ${player.collected}/3`;
+      lifeInfo.textContent = `Can: ${lives}`;
+      stateInfo.textContent = `Durum: ${invuln ? 'Hasar Koruması' : 'Normal'}`;
+    }
+
+    function loop(){ input(); update(); render(); requestAnimationFrame(loop); }
+    resetLevel(false); loop();
+  </script>
+</body>
+</html>
